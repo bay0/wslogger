@@ -12,26 +12,19 @@ const (
 	bufferSize = 1000
 )
 
-// WSLogger is a WebSocket-based logger that broadcasts log messages to connected clients.
 type WSLogger struct {
-	upgrader     websocket.Upgrader       // Upgrades HTTP connections to WebSocket connections
-	clients      map[*websocket.Conn]bool // Stores WebSocket connections of all connected clients
-	broadcast    chan []byte              // Channel for broadcasting log messages to connected clients
-	bufferedLogs chan []byte              // Channel for buffering log messages
+	upgrader  websocket.Upgrader
+	clients   sync.Map
+	broadcast chan []byte
 }
 
-// NewWSLogger creates a new WSLogger instance.
 func NewWSLogger() *WSLogger {
 	return &WSLogger{
-		upgrader:     websocket.Upgrader{},
-		clients:      make(map[*websocket.Conn]bool),
-		broadcast:    make(chan []byte, bufferSize),
-		bufferedLogs: make(chan []byte),
+		upgrader:  websocket.Upgrader{},
+		broadcast: make(chan []byte, bufferSize),
 	}
 }
 
-// HandleConnections upgrades the HTTP connection to a WebSocket connection and manages
-// the connected clients.
 func (wsl *WSLogger) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := wsl.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -40,62 +33,45 @@ func (wsl *WSLogger) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	wsl.clients[ws] = true
-
-	for {
-		_, _, err := ws.ReadMessage()
-		if err != nil {
-			delete(wsl.clients, ws)
-			break
-		}
+	client := &Client{
+		conn: ws,
+		send: make(chan []byte, bufferSize),
 	}
+	wsl.clients.Store(client, struct{}{})
+
+	client.run()
+
+	wsl.clients.Delete(client)
 }
 
-// handleMessages reads log messages from the broadcast channel and sends them to all
-// connected clients.
 func (wsl *WSLogger) handleMessages() {
-	for {
-		msg := <-wsl.broadcast
-		for client := range wsl.clients {
-			err := client.WriteMessage(websocket.TextMessage, msg)
-			if err != nil {
-				client.Close()
-				delete(wsl.clients, client)
+	for msg := range wsl.broadcast {
+		wsl.clients.Range(func(key, value interface{}) bool {
+			client := key.(*Client)
+			select {
+			case client.send <- msg:
+			default:
+				close(client.send)
+				wsl.clients.Delete(client)
 			}
-		}
+			return true
+		})
 	}
 }
 
-// Close closes the WSWriter, preventing further writes.
-func (wsw *WSWriter) Close() error {
-	wsw.mutex.Lock()
-	defer wsw.mutex.Unlock()
-
-	if wsw.closed {
-		return io.ErrClosedPipe
-	}
-
-	wsw.closed = true
-	return nil
-}
-
-// WSWriter is an io.Writer implementation that writes log messages to a WSLogger's
-// broadcast channel.
 type WSWriter struct {
 	wsLogger *WSLogger
-	mutex    sync.Mutex
+	mutex    sync.RWMutex
 	closed   bool
 }
 
-// NewWSWriter creates a new WSWriter instance for the given WSLogger.
 func (wsl *WSLogger) NewWSWriter() *WSWriter {
 	return &WSWriter{wsLogger: wsl}
 }
 
-// Write writes the given byte slice (log message) to the WSLogger's broadcast channel.
 func (wsw *WSWriter) Write(p []byte) (n int, err error) {
-	wsw.mutex.Lock()
-	defer wsw.mutex.Unlock()
+	wsw.mutex.RLock()
+	defer wsw.mutex.RUnlock()
 
 	if wsw.closed {
 		return 0, io.ErrClosedPipe
@@ -108,7 +84,47 @@ func (wsw *WSWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// Start starts the message handling loop in a separate goroutine.
+func (wsw *WSWriter) Close() error {
+	wsw.mutex.Lock()
+	defer wsw.mutex.Unlock()
+
+	if wsw.closed {
+		return io.ErrClosedPipe
+	}
+
+	wsw.closed = true
+	return nil
+}
+
 func (wsl *WSLogger) Start() {
 	go wsl.handleMessages()
+}
+
+type Client struct {
+	conn *websocket.Conn
+	send chan []byte
+}
+
+func (c *Client) run() {
+	go c.readPump()
+	c.writePump()
+}
+
+func (c *Client) readPump() {
+	defer c.conn.Close()
+	for {
+		_, _, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+func (c *Client) writePump() {
+	for msg := range c.send {
+		err := c.conn.WriteMessage(websocket.TextMessage, msg)
+		if err != nil {
+			break
+		}
+	}
 }
