@@ -1,5 +1,11 @@
 # wslogger
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/bay0/wslogger)](https://goreportcard.com/report/github.com/bay0/wslogger)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/bay0/wslogger)
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/bay0/wslogger/test.yml)
+![GitHub last commit](https://img.shields.io/github/last-commit/bay0/wslogger)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/bay0/wslogger)
+
 ![Demo GIF of the wslogger in action.](./example/demo.gif)
 
 `wslogger` is a simple WebSocket-based logging helper for Go.
