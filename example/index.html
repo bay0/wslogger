@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .terminal-title {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        display: inline-block;
+      }
+
+      .text-info {
+        color: #63b3ed;
+      }
+
+      .text-error {
+        color: #f56565;
+      }
+
+      .text-warning {
+        color: #ecc94b;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-950 font-sans">
+    <div class="min-h-screen flex items-center justify-center">
+      <div class="bg-gray-900 rounded-lg shadow-lg p-4 m-4 w-full">
+        <div class="flex justify-between items-center">
+          <div class="text-green-500 text-xl font-semibold">Logs</div>
+          <div class="flex space-x-2">
+            <span class="terminal-title text-xs text-gray-400"
+              >ws://localhost:8000/ws</span
+            >
+          </div>
+        </div>
+        <div
+          class="bg-gray-800 border border-gray-700 rounded-lg p-5 mt-2 text-gray-300 font-mono text-sm overflow-y-auto max-h-screen h-96"
+          id="log"
+        >
+          <p>Welcome to the logs!</p>
+        </div>
+      </div>
+    </div>
+    <script>
+      const logElem = document.getElementById("log");
+      const ws = new WebSocket("ws://localhost:8000/ws");
+      const maxItems = 100;
+      let logItems = [];
+
+      ws.onmessage = function (event) {
+        const logJSON = JSON.parse(event.data);
+        const time = new Date(logJSON.time).toLocaleTimeString();
+
+        const logItem = document.createElement("p");
+        logItem.classList.add(`text-${logJSON.level}`, "mb-4");
+        logItem.textContent = `[${time}]: ${logJSON.msg}`;
+
+        logItems.push(logItem);
+
+        if (logItems.length > maxItems) {
+          const removedItem = logItems.shift();
+          logElem.removeChild(removedItem);
+        }
+
+        logElem.appendChild(logItem);
+        logElem.scrollTop = logElem.scrollHeight;
+      };
+
+      ws.onclose = function () {
+        logElem.textContent += "WebSocket connection closed.\n";
+      };
+    </script>
+  </body>
+</html>
