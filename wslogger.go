@@ -66,6 +66,19 @@ func (wsl *WSLogger) handleMessages() {
 	}
 }
 
+// Close closes the WSWriter, preventing further writes.
+func (wsw *WSWriter) Close() error {
+	wsw.mutex.Lock()
+	defer wsw.mutex.Unlock()
+
+	if wsw.closed {
+		return io.ErrClosedPipe
+	}
+
+	wsw.closed = true
+	return nil
+}
+
 // WSWriter is an io.Writer implementation that writes log messages to a WSLogger's
 // broadcast channel.
 type WSWriter struct {
